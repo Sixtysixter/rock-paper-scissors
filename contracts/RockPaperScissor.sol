@@ -27,10 +27,7 @@ contract RockPaperScissor {
 
     event LogCreation(uint256 minWager, uint256 maxWager);
     event LogGameStarted(bytes32 indexed gameHash, address indexed player);
-    // event LogGameStarted(bytes32 gameHash, address firstPlayer, bytes32 firstHash, MOVE firstMove, address secondPlayer, bytes32 secondHash, MOVE secondMove);
     event LogGameEnded(bytes32 indexed gameHash, address indexed player);
-    // event LogGameEnded(bytes32 gameHash, address firstPlayer, bytes32 firstHash, MOVE firstMove, address secondPlayer, bytes32 secondHash, MOVE secondMove);
-    // event LogGameRevealed(bytes32 gameHash, address firstPlayer, bytes32 firstHash, MOVE firstMove, address secondPlayer, bytes32 secondHash, MOVE secondMove);
     event LogNoWinner(bytes32 indexed gameHash, address indexed firstPlayer, address indexed secondPlayer, MOVE move);
     event LogWinnerIs(bytes32 indexed gameHash, address indexed winner, MOVE winnerMove, address indexed looser, MOVE looserMove);
     event LogClaim(bytes32 indexed gameHash, address indexed player,  uint256 indexed wager);
@@ -62,7 +59,6 @@ contract RockPaperScissor {
         game.expiringBlock   = block.number + timeout;
 
         emit LogGameStarted(gameHash, msg.sender);
-        // emit LogGameStarted(gameHash, game.first.player, game.first.moveHash, game.first.move, game.second.player, game.second.moveHash, game.second.move);
     }
 
     function raise(bytes32 gameHash, bytes32 moveHash) public payable {
@@ -74,15 +70,11 @@ contract RockPaperScissor {
         require(game.first.player != 0, "raise: game not started yet");
         require(game.second.player == 0, "raise: game already ended");
 
-        // bytes32 check = makeGameHash(game.first.player, msg.sender);
-        // require(gameHash == check, "raise: you are not be challenged");
-
         game.second.player   = msg.sender;
         game.second.wager    = msg.value;
         game.second.moveHash = moveHash;
 
         emit LogGameEnded(gameHash, msg.sender);
-        // emit LogGameEnded(gameHash, game.first.player, game.first.moveHash, game.first.move, game.second.player, game.second.moveHash, game.second.move);
     }
 
     function reveal(bytes32 gameHash, bytes32 secret, uint8 move) public {
@@ -104,9 +96,6 @@ contract RockPaperScissor {
             game.second.move = MOVE(move);
         else
             revert();
-
-        // emit LogGameRevealed(gameHash, game.first.player, game.first.moveHash, game.first.move, game.second.player, game.second.moveHash, game.second.move);
-
 
         if (game.first.move == MOVE.NONE || game.second.move == MOVE.NONE)
             return;
@@ -158,14 +147,6 @@ contract RockPaperScissor {
     function makeGameHash(bytes32 secret) public view returns(bytes32 hash) {
         return keccak256(abi.encodePacked(address(this), msg.sender, secret));
     }
-
-    // function makeGameHash(address otherPlayer) public view returns(bytes32 hash) {
-    //     return makeGameHash(msg.sender, otherPlayer);
-    // }
-
-    // function makeGameHash(address challenger, address otherPlayer) private view returns(bytes32 hash) {
-    //     return keccak256(abi.encodePacked(address(this), challenger, otherPlayer, block.number));
-    // }
 
     function evaluateWinner(Game storage game) private view returns(WINNER winner) {
         if (game.first.move == game.second.move)

@@ -560,57 +560,23 @@ contract('RockPaperScissor', function(accounts) {
                     .then(_firstHash => {
                         firstHash = _firstHash;
 
-                        // console.log("Step 1");
                         return instance.makeMoveHash.call(SECOND_SECRET, secondMove, {from: player2, gas: MAX_GAS })
                     })
                     .then(_secondHash => {
                         secondHash = _secondHash;
 
-                        // console.log("Step 2");
                         return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                     })
                     .then(()=> {
                         return instance.raise(gameHash, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
                     })
                     .then(txObject => {
-                        // console.log("Step 4");
-
-                        // console.log("eventName    " + txObject.logs[0].event);
-                        // console.log("gameHash     " + txObject.logs[0].args.gameHash);
-                        // console.log("firstPlayer  " + txObject.logs[0].args.firstPlayer);
-                        // console.log("firstHash    " + txObject.logs[0].args.firstHash);
-                        // console.log("firstMove    " + txObject.logs[0].args.firstMove);
-                        // console.log("secondPlayer " + txObject.logs[0].args.secondPlayer);
-                        // console.log("secondHash   " + txObject.logs[0].args.secondHash);
-                        // console.log("secondMove   " + txObject.logs[0].args.secondMove);
-
                         return instance.reveal(gameHash, FIRST_SECRET, firstMove, {from: player1, gas: MAX_GAS })
                     })
                     .then(txObject => {
-                        // console.log("Step 5");
-                        // console.log("eventName    " + txObject.logs[0].event);
-                        // console.log("gameHash     " + txObject.logs[0].args.gameHash);
-                        // console.log("firstPlayer  " + txObject.logs[0].args.firstPlayer);
-                        // console.log("firstHash    " + txObject.logs[0].args.firstHash);
-                        // console.log("firstMove    " + txObject.logs[0].args.firstMove);
-                        // console.log("secondPlayer " + txObject.logs[0].args.secondPlayer);
-                        // console.log("secondHash   " + txObject.logs[0].args.secondHash);
-                        // console.log("secondMove   " + txObject.logs[0].args.secondMove);
-                    
                         return instance.reveal(gameHash, SECOND_SECRET, secondMove, {from: player2, gas: MAX_GAS })
                     })
                     .then(txObject => {
-                        // console.log("Step 6");
-
-                        // console.log("eventName    " + txObject.logs[0].event);
-                        // console.log("gameHash     " + txObject.logs[0].args.gameHash);
-                        // console.log("firstPlayer  " + txObject.logs[0].args.firstPlayer);
-                        // console.log("firstHash    " + txObject.logs[0].args.firstHash);
-                        // console.log("firstMove    " + txObject.logs[0].args.firstMove);
-                        // console.log("secondPlayer " + txObject.logs[0].args.secondPlayer);
-                        // console.log("secondHash   " + txObject.logs[0].args.secondHash);
-                        // console.log("secondMove   " + txObject.logs[0].args.secondMove);
-
                         assert.equal(txObject.logs.length, 1, "should have received 1 event");
                         assert.equal(txObject.logs[0].event, eventName, "should be " + eventName + " event");
                         if (winner == -1) {
