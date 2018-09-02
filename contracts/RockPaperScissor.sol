@@ -17,8 +17,6 @@ contract RockPaperScissor {
        uint256    expiringBlock;
     }
 
-    uint256 public constant MIN_TIMEOUT = 3; // to be evaluated
-
     uint256 public minWager;
     uint256 public maxWager;
 
@@ -47,7 +45,7 @@ contract RockPaperScissor {
     function play(bytes32 gameHash, bytes32 moveHash, uint256 timeout) public payable {
         require(minWager <= msg.value && msg.value <= maxWager, "play: wager out of range");
         require(moveHash != 0, "play: invalid move");
-        require(timeout >= MIN_TIMEOUT, "play: invalid timeout");
+        require(timeout > 0, "play: invalid timeout");
 
         Game storage game = games[gameHash];
 
@@ -138,6 +136,8 @@ contract RockPaperScissor {
         balances[game.first.player] += game.first.wager;
         
         emit LogClaim(gameHash, msg.sender, game.first.wager);
+
+        resetGame(game);
     }
 
     function makeMoveHash(bytes32 secret, uint8 move) public view returns(bytes32 moveHash) {

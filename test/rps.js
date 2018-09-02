@@ -26,7 +26,7 @@ contract('RockPaperScissor', function(accounts) {
     const UNKNOWN_SECRET   = web3.sha3("unknownPlayer");
 
     const LONG_TIMEOUT     = 100;
-    const SHORT_TIMEOUT    = 4;
+    const SHORT_TIMEOUT    = 1;
 
     const NO_MOVE          = 0;
     const ROCK_MOVE        = 1;
@@ -194,6 +194,13 @@ contract('RockPaperScissor', function(accounts) {
                 });
         });
 
+        it("It should fail if the timeout is too low", function() {
+            return instance.play.call(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .catch(error  =>  {
+                    assert.include(error.message, "VM Exception while processing transaction: revert");
+                });
+        });
+
         it("Player 1 should start the game", function() {
             return instance.play(gameHash, firstHash, LONG_TIMEOUT, { from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                 .then(txObject => {
@@ -282,6 +289,73 @@ contract('RockPaperScissor', function(accounts) {
                     assert.equal(txObject.logs[0].args.gameHash, gameHash, "game hash should be the same")
                 });
         });
+    });
+
+    describe("First player claims the game", function() {
+        var instance;
+        var gameHash;
+        var firstHash   = web3.sha3("firstHash"); // bogus hash
+        var anotherHash = web3.sha3("anotherHash"); // bogus hash
+
+        before("It should deploy RockPaperScissor and get the instance", function() {
+            return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
+                .then(function(_instance) {
+                    instance = _instance;
+                });
+        });
+
+        var count = 0;
+        beforeEach("Player 1 should start the game", function() {
+            var gameSecret = web3.sha3("Game#" + (++count));
+            return instance.makeGameHash(gameSecret, {from: player1, gas: MAX_GAS })
+                .then(_hash => {
+                        gameHash = _hash;
+                });
+        });
+
+        it("It should fail if the game is running", function() {
+            return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.claim(gameHash, {from: player1, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
+
+        it("It should fail if the sender is wrong", function() {
+            return instance.play(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.claim(gameHash, {from: player2, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
+
+        it("It should fail if the game hash is wrong", function() {
+            return instance.play(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.claim(0, {from: player1, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
+
+        it("It should claims the game", function() {
+            return instance.play(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return instance.play(anotherHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                })
+                .then(() => {
+                    return instance.claim(gameHash, {from: player1, gas: MAX_GAS })
+                })
+                .then(txObject => {
+                    assert.equal(txObject.logs.length, 1, "should have received 1 event");
+                    assert.equal(txObject.logs[0].event, "LogClaim", "should be LogClaim event");
+                    assert.equal(txObject.logs[0].args.player, player1, "sender should be the player2");
+                    assert.equal(txObject.logs[0].args.gameHash, gameHash, "game hash should be the same")
+                });
+        });
+
     });
 
     describe("Player 1 reveals its move.", function() {
