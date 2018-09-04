@@ -1,4 +1,4 @@
-Promise = require("bluebird");
+const Promise = require("bluebird");
 
 Promise.promisifyAll(web3.eth, { suffix: "Promise" });
 
@@ -11,16 +11,17 @@ const RockPaperScissor = artifacts.require("./RockPaperScissor.sol");
 contract('RockPaperScissor', function(accounts) {
     const MAX_GAS          = 3000000;
 
-    const MAX_WAGER        = web3.toWei(1.000, 'ether'); 
-    const MIN_WAGER        = web3.toWei(0.001, 'ether'); 
+    const MAX_WAGER        = web3.toWei(100, 'wei'); 
+    const MIN_WAGER        = web3.toWei(30 , 'wei'); 
 
-    const TO_LOW_WAGER     = web3.toWei(0.0005, 'ether'); 
-    const TO_HIGH_WAGER    = web3.toWei(1.1, 'ether'); 
+    const TO_HIGH_WAGER    = web3.toWei(120, 'wei'); 
+    const TO_LOW_WAGER     = web3.toWei(20 , 'wei'); 
 
-    const FIRST_WAGER      = web3.toWei(0.003, 'ether'); 
-    const SECOND_WAGER     = web3.toWei(0.005, 'ether'); 
+    const FIRST_WAGER      = web3.toWei(40, 'wei'); 
+    const SECOND_WAGER     = web3.toWei(70, 'wei'); 
 
-    const GAME_SECRET      = web3.sha3("Let's play!!");
+    const GAME_HASH        = web3.sha3("Let's play!!");
+
     const FIRST_SECRET     = web3.sha3("firstPlayer");
     const SECOND_SECRET    = web3.sha3("secondPlayer");
     const UNKNOWN_SECRET   = web3.sha3("unknownPlayer");
@@ -38,10 +39,10 @@ contract('RockPaperScissor', function(accounts) {
     // console.log(FIRST_HASH);
     // console.log(SECOND_HASH);
 
-    var owner;
-    var player1;
-    var player2;
-    var PLAYERS = [];
+    let owner;
+    let player1;
+    let player2;
+    let PLAYERS = [];
     before("check accounts number", function() {
         assert.isAtLeast(accounts.length, 3, "not enough accounts");
         [owner, player1, player2] = accounts;
@@ -51,7 +52,7 @@ contract('RockPaperScissor', function(accounts) {
         console.log("Player 2: " + player2);
     });
 
-    describe("Try migration", function() {
+    describe("Try deployment", function() {
         var instance;
         before("should deploy RockPaperScissor and get the instance", function() {
             return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, { from: owner, gas: MAX_GAS })
@@ -75,30 +76,6 @@ contract('RockPaperScissor', function(accounts) {
                         "" + MAX_WAGER,
                         "should have MAX_WAGER");
                 });
-        });
-    });
-
-    describe("Make game hash.", function() {
-        var instance;
-        var gameHash;
-
-        before("It should deploy RockPaperScissor and get the instance", function() {
-            return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, { from: owner, gas: MAX_GAS })
-                .then(function(_instance) {
-                    instance = _instance;
-                });
-        });
-
-        it("It should fail if the game hash doesn't change", function() {
-            return instance.makeGameHash(FIRST_SECRET, {from: player1, gas: MAX_GAS })
-                .then(_gameHash  =>  {
-                    gameHash = _gameHash;
-                    
-                    return instance.makeGameHash.call(SECOND_SECRET, {from: player2, gas: MAX_GAS })
-                })
-                .then(_check  =>  {
-                    assert.notEqual(gameHash, _check, "Hash should change");
-                });                    
         });
     });
 
@@ -149,20 +126,15 @@ contract('RockPaperScissor', function(accounts) {
         });
     });
 
-    describe("First player plays.", function() {
+    describe("Should check play parameters.", function() {
         var instance;
-        var gameHash;
+        var gameHash = GAME_HASH;
         var firstHash = web3.sha3("firstHash"); // bogus hash
 
         before("It should deploy RockPaperScissor, get the instance and make a game hash", function() {
             return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
                 .then(function(_instance) {
                     instance = _instance;
-
-                    return instance.makeGameHash(firstHash, {from: player1, gas: MAX_GAS });
-                })
-                .then(_hash => {
-                    gameHash = _hash;
                 });
         });
 
@@ -200,50 +172,67 @@ contract('RockPaperScissor', function(accounts) {
                     assert.include(error.message, "VM Exception while processing transaction: revert");
                 });
         });
-
-        it("Player 1 should start the game", function() {
-            return instance.play(gameHash, firstHash, LONG_TIMEOUT, { from: player1, value: FIRST_WAGER, gas: MAX_GAS })
-                .then(txObject => {
-                    // console.log(txObject);
-                    // var logs = JSON.stringify(txObject.logs, null, 2);
-                    // console.log(logs);
-
-                    assert.equal(txObject.logs.length, 1, "should have received 1 event");
-                    assert.equal(txObject.logs[0].event, "LogGameStarted", "should be LogGameStarted event");
-                    assert.equal(txObject.logs[0].args.player, player1, "sender should be the player1");
-                    assert.equal(txObject.logs[0].args.gameHash, gameHash, "game hash is wrong");
-                });
-            });
     });
 
-    describe("Second player plays.", function() {
+    describe("First player plays.", function() {
         var instance;
-        var gameHash;
+        var gameHash  = GAME_HASH;
         var firstHash = web3.sha3("firstHash"); // bogus hash
-        var secondHash = web3.sha3("secondHash"); // bogus hash
 
-        before("It should deploy RockPaperScissor and get the instance", function() {
+        beforeEach("It should deploy RockPaperScissor, get the instance", function() {
             return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
                 .then(function(_instance) {
                     instance = _instance;
                 });
         });
 
-        var count = 0;
-        beforeEach("Player 1 should start the game", function() {
-            var gameSecret = web3.sha3("Game#" + (++count));
-            return instance.makeGameHash(gameSecret, {from: player1, gas: MAX_GAS })
-                .then(_hash => {
-                        gameHash = _hash;
-
-                        return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
-                })
+        it("Play should emit just 1 event", function() {
+            return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                 .then(txObject => {
                     assert.equal(txObject.logs.length, 1, "should have received 1 event");
                     assert.equal(txObject.logs[0].event, "LogGameStarted", "should be LogGameStarted event");
+                    assert.equal(txObject.logs[0].args.player, player1, "sender should be the player1");
+                    assert.equal(txObject.logs[0].args.gameHash, gameHash, "game hash is wrong");
+                });
+            });
+
+        // it("Play should set the game for player 1", function() {
+        //     return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+        //         .then(() => {
+        //             return instance.games(gameHash);
+        //         })
+        //         .then(_game => {
+        //             console.log(_game);
+        //             assert.equal(_game.first.player, player1, "should be the player 1");                    
+        //             assert.equal(_game.first.wager, FIRST_WAGER, "should be the right wager");                    
+        //             assert.equal(_game.first.moveHash, firstHash, "should be the right hash");                    
+        //         });
+        //     });
+
+        it("Play should fails if player 1 plays twice", function() {
+            return instance.play(gameHash, firstHash, LONG_TIMEOUT, { from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.play(gameHash, firstHash, LONG_TIMEOUT, { from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+            });
+    });
+
+    describe("Should check raise parameters.", function() {
+        var instance;
+        var gameHash   = GAME_HASH;
+        var firstHash  = web3.sha3("firstHash"); // bogus hash
+        var secondHash = web3.sha3("secondHash"); // bogus hash
+
+        before("It should deploy RockPaperScissor and get the instance", function() {
+            return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
+                .then(function(_instance) {
+                    instance = _instance;
+
+                    return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                 });
         });
-
 
         it("It should fail if the game hash is wrong", function() {
             return instance.raise.call(0, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
@@ -279,37 +268,67 @@ contract('RockPaperScissor', function(accounts) {
                     assert.include(error.message, "VM Exception while processing transaction: revert");
                 });
         });
+    });
 
-        it("Player 2 should play the game", function() {
+    describe("Second player plays.", function() {
+        var instance;
+        var gameHash   = GAME_HASH;
+        var firstHash  = web3.sha3("firstHash"); // bogus hash
+        var secondHash = web3.sha3("secondHash"); // bogus hash
+
+        beforeEach("It should deploy RockPaperScissor and get the instance", function() {
+            return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
+                .then(_instance => {
+                    instance = _instance;
+
+                    return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                });
+        });
+
+        it("Raise should emit just 1 event", function() {
             return instance.raise(gameHash, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
                 .then(txObject => {
                     assert.equal(txObject.logs.length, 1, "should have received 1 event");
                     assert.equal(txObject.logs[0].event, "LogGameEnded", "should be LogGameEnded event");
                     assert.equal(txObject.logs[0].args.player, player2, "sender should be the player2");
-                    assert.equal(txObject.logs[0].args.gameHash, gameHash, "game hash should be the same")
+                    assert.equal(txObject.logs[0].args.gameHash, gameHash, "game hash should be the same");
+                    assert.equal(txObject.logs[0].args.moveHash, secondHash, "game hash should be the same");
+                    // and the block timeout???
                 });
         });
+
+        // it("Raise should set the game for player 2", function() {
+        //     return instance.raise(gameHash, secondHash, { from: secondHash, value: SECOND_WAGER, gas: MAX_GAS })
+        //         .then(() => {
+        //             return instance.games(gameHash);
+        //         })
+        //         .then(_game => {
+        //             assert.equal(_game.second.player, secondHash, "should be the player 1");                    
+        //             assert.equal(_game.second.wager, SECOND_WAGER, "should be the right wager");                    
+        //             assert.equal(_game.second.moveHash, secondHash, "should be the right hash");                    
+        //         });
+        //     });
+
+        it("Raise should fails if player 2 plays twice", function() {0
+            return instance.raise(gameHash, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.raise(gameHash, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+            });
     });
 
-    describe("First player claims the game", function() {
+    describe("Should check claims parameters", function() {
         var instance;
-        var gameHash;
+        var gameHash    = GAME_HASH;
         var firstHash   = web3.sha3("firstHash"); // bogus hash
         var anotherHash = web3.sha3("anotherHash"); // bogus hash
 
-        before("It should deploy RockPaperScissor and get the instance", function() {
+        beforeEach("It should deploy RockPaperScissor and get the instance", function() {
             return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
                 .then(function(_instance) {
                     instance = _instance;
-                });
-        });
-
-        var count = 0;
-        beforeEach("Player 1 should start the game", function() {
-            var gameSecret = web3.sha3("Game#" + (++count));
-            return instance.makeGameHash(gameSecret, {from: player1, gas: MAX_GAS })
-                .then(_hash => {
-                        gameHash = _hash;
                 });
         });
 
@@ -323,7 +342,7 @@ contract('RockPaperScissor', function(accounts) {
         });
 
         it("It should fail if the sender is wrong", function() {
-            return instance.play(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+            return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                 .then(() => {
                     return web3.eth.expectedExceptionPromise(function() {
                         return instance.claim(gameHash, {from: player2, gas: MAX_GAS })
@@ -332,7 +351,49 @@ contract('RockPaperScissor', function(accounts) {
         });
 
         it("It should fail if the game hash is wrong", function() {
-            return instance.play(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+            return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.claim(0, {from: player1, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
+    });
+
+    describe("First player claims the game", function() {
+        var instance;
+        var gameHash    = GAME_HASH;
+        var firstHash   = web3.sha3("firstHash"); // bogus hash
+        var secondHash  = web3.sha3("secondHash"); // bogus hash
+        var anotherHash = web3.sha3("anotherHash"); // bogus hash
+
+        beforeEach("It should deploy RockPaperScissor and get the instance", function() {
+            return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
+                .then(function(_instance) {
+                    instance = _instance;
+                });
+        });
+
+        it("It should fail if the game is running", function() {
+            return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.claim(gameHash, {from: player1, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
+
+        it("It should fail if the sender is wrong", function() {
+            return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.claim(gameHash, {from: player2, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
+
+        it("It should fail if the game hash is wrong", function() {
+            return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                 .then(() => {
                     return web3.eth.expectedExceptionPromise(function() {
                         return instance.claim(0, {from: player1, gas: MAX_GAS })
@@ -343,7 +404,7 @@ contract('RockPaperScissor', function(accounts) {
         it("It should claims the game", function() {
             return instance.play(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                 .then(() => {
-                    return instance.play(anotherHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                    return instance.play(anotherHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                 })
                 .then(() => {
                     return instance.claim(gameHash, {from: player1, gas: MAX_GAS })
@@ -356,11 +417,37 @@ contract('RockPaperScissor', function(accounts) {
                 });
         });
 
+        it("It should fails if claims the game twice", function() {
+            return instance.play(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return instance.play(anotherHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                })
+                .then(() => {
+                    return instance.claim(gameHash, {from: player1, gas: MAX_GAS })
+                })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.claim(gameHash, {from: player1, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
+
+        it("It should fails if player 2 already played", function() {
+            return instance.play(gameHash, firstHash, SHORT_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                .then(() => {
+                    return instance.raise(gameHash, secondHash, {from: player2, value: FIRST_WAGER, gas: MAX_GAS })
+                })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.claim(gameHash, {from: player1, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
     });
 
-    describe("Player 1 reveals its move.", function() {
+    describe("Should check reveals parameters", function() {
         var instance;
-        var gameHash;
+        var gameHash   = GAME_HASH;
         var firstHash;
         var secondHash = web3.sha3("secondHash"); // bogus hash
         var move       = ROCK_MOVE;
@@ -373,24 +460,13 @@ contract('RockPaperScissor', function(accounts) {
         });
 
         before("Player 1 & 2 should play the game", function() {
-            return instance.makeGameHash(GAME_SECRET, {from: player1, gas: MAX_GAS })
-                .then(_hash => {
-                    gameHash = _hash;
-
-                    return instance.makeMoveHash.call(FIRST_SECRET, move, {from: player1, gas: MAX_GAS })
-                })
+            return instance.makeMoveHash.call(FIRST_SECRET, move, {from: player1, gas: MAX_GAS })
                 .then(_firstHash => {
                     firstHash = _firstHash;
                     return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
                 })
                 .then(() => {
                     return instance.raise(gameHash, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
-                })
-                .then(txObject => {
-                    assert.equal(txObject.logs.length, 1, "should have received 1 event");
-                    assert.equal(txObject.logs[0].event, "LogGameEnded", "should be LogGameEnded event");
-                    assert.equal(txObject.logs[0].args.player, player2, "sender should be the player2");
-                    assert.equal(txObject.logs[0].args.gameHash, gameHash, "game hash should be the same")
                 });
         });
 
@@ -436,6 +512,33 @@ contract('RockPaperScissor', function(accounts) {
                     assert.include(error.message, "VM Exception while processing transaction: revert");
                 });
         });
+    });
+
+    describe("Player 1 should reveal its move.", function() {
+        var instance;
+        var gameHash   = GAME_HASH;
+        var firstHash;
+        var secondHash = web3.sha3("secondHash"); // bogus hash
+        var move       = ROCK_MOVE;
+        var fakeMove   = PAPER_MOVE;
+
+        beforeEach("It should deploy RockPaperScissor and get the instance", function() {
+            return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
+                .then(function(_instance) {
+                    instance = _instance;
+                });
+        });
+
+        beforeEach("Player 1 & 2 should play the game", function() {
+            return instance.makeMoveHash.call(FIRST_SECRET, move, {from: player1, gas: MAX_GAS })
+                .then(_firstHash => {
+                    firstHash = _firstHash;
+                    return instance.play(gameHash, firstHash, LONG_TIMEOUT, {from: player1, value: FIRST_WAGER, gas: MAX_GAS })
+                })
+                .then(() => {
+                    return instance.raise(gameHash, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
+                });
+        });
 
         it("Player 1 should reveal its move", function() {
             return instance.reveal(gameHash, FIRST_SECRET, move, {from: player1, gas: MAX_GAS })
@@ -443,15 +546,25 @@ contract('RockPaperScissor', function(accounts) {
                     assert.equal(txObject.logs.length, 0, "should have received 0 event");
                 });
         });
+
+        it("Should fail if Player 1 reveals its move twice", function() {
+            return instance.reveal(gameHash, FIRST_SECRET, move, {from: player1, gas: MAX_GAS })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.reveal(gameHash, FIRST_SECRET, fakeMove, {from: player1, gas: MAX_GAS })
+                    }, MAX_GAS)
+                });
+        });
     });
 
     describe("Player 2 reveals its move.", function() {
         var instance;
-        var gameHash;
+        var gameHash   = GAME_HASH;
         var firstHash;
         var secondHash;
         var firstMove  = ROCK_MOVE;
         var secondMove = PAPER_MOVE;
+        var fakeMove   = SCISSORS_MOVE;
 
         before("It should deploy RockPaperScissor and get the instance", function() {
             return RockPaperScissor.new(MIN_WAGER, MAX_WAGER, {from: owner, gas: MAX_GAS })
@@ -460,13 +573,8 @@ contract('RockPaperScissor', function(accounts) {
                 });
         });
 
-        before("Player 1 & 2 should play the game, player 1 reveals its move", function() {
-            return instance.makeGameHash(GAME_SECRET, {from: player1, gas: MAX_GAS })
-                .then(_hash => {
-                    gameHash = _hash;
-
-                    return instance.makeMoveHash.call(FIRST_SECRET, firstMove, {from: player1, gas: MAX_GAS })
-                })
+        beforeEach("Player 1 & 2 should play the game, player 1 reveals its move", function() {
+            return instance.makeMoveHash.call(FIRST_SECRET, firstMove, {from: player1, gas: MAX_GAS })
                 .then(_firstHash => {
                     firstHash = _firstHash;
 
@@ -480,59 +588,8 @@ contract('RockPaperScissor', function(accounts) {
                 .then(() => {                
                     return instance.raise(gameHash, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
                 })
-                .then(txObject => {
-                    assert.equal(txObject.logs.length, 1, "should have received 1 event");
-                    assert.equal(txObject.logs[0].event, "LogGameEnded", "should be LogGameEnded event");
-                    assert.equal(txObject.logs[0].args.player, player2, "sender should be the player2");
-                    assert.equal(txObject.logs[0].args.gameHash, gameHash, "game hash should be the same");
-
+                .then(() => {
                     return instance.reveal(gameHash, FIRST_SECRET, firstMove, {from: player1, gas: MAX_GAS })
-                })
-                .then(txObject => {
-                    assert.equal(txObject.logs.length, 0, "should have received 0 event");
-                });
-        });
-
-        // it makes sense to redo all these tests?
-        it("It should fail if the game hash is wrong", function() {
-            return instance.reveal.call(0, SECOND_SECRET, secondMove, {from: player2, gas: MAX_GAS })
-                .catch(error  =>  {
-                    assert.include(error.message, "VM Exception while processing transaction: revert");
-                });
-        });
-
-        it("It should fail if the move hash is zero", function() {
-            return instance.reveal.call(gameHash, 0, secondMove, { from: player2, gas: MAX_GAS })
-                .catch(error  =>  {
-                    assert.include(error.message, "VM Exception while processing transaction: revert");
-                });
-        });
-
-        it("It should fail if the move hash is not owned", function() {
-            return instance.reveal.call(gameHash, UNKNOWN_SECRET, secondMove, { from: player2, gas: MAX_GAS })
-                .catch(error  =>  {
-                    assert.include(error.message, "VM Exception while processing transaction: revert");
-                });
-        });
-
-        it("It should fail if the move is NO_MOVE", function() {
-            return instance.reveal.call(gameHash, SECOND_SECRET, NO_MOVE, { from: player2, gas: MAX_GAS })
-                .catch(error  =>  {
-                    assert.include(error.message, "VM Exception while processing transaction: revert");
-                });
-        });
-
-        it("It should fail if the move is invalid", function() {
-            return instance.reveal.call(gameHash, SECOND_SECRET, INVALID_MOVE, { from: player2, gas: MAX_GAS })
-                .catch(error  =>  {
-                    assert.include(error.message, "VM Exception while processing transaction: revert");
-                });
-        });
-
-        it("It should fail if the player didn't play", function() {
-            return instance.reveal.call(gameHash, SECOND_SECRET, secondMove, { from: owner, gas: MAX_GAS })
-                .catch(error  =>  {
-                    assert.include(error.message, "VM Exception while processing transaction: revert");
                 });
         });
 
@@ -541,6 +598,15 @@ contract('RockPaperScissor', function(accounts) {
                 .then(txObject => {
                     // no event check here
                     assert.equal(txObject.logs.length, 1, "should have received 1 event");
+                });
+        });
+
+        it("Should fails if Player 2 reveals its move twice", function() {
+            return instance.reveal(gameHash, SECOND_SECRET, secondMove, {from: player2, gas: MAX_GAS })
+                .then(txObject => {
+                    return web3.eth.expectedExceptionPromise(function() {
+                        return instance.reveal(gameHash, SECOND_SECRET, fakeMove, {from: player2, gas: MAX_GAS })
+                    }, MAX_GAS)
                 });
         });
     });
@@ -620,17 +686,10 @@ contract('RockPaperScissor', function(accounts) {
             const winner     = game.winner;
             const looser     = game.looser;
             const eventName  = game.eventName;
-
-            var gameSecret = web3.sha3("Game#" + (++count));
-            var gameHash;
+            const gameHash   = GAME_HASH;
 
             it(`Player 1 moves ${MOVES[firstMove]} and Player 2 moves ${MOVES[secondMove]} with winner: ${NAMES[winner+1]}`, function() {
-                return instance.makeGameHash(gameSecret, {from: player1, gas: MAX_GAS })
-                    .then(_hash => {
-                        gameHash = _hash;
-
-                        return instance.makeMoveHash.call(FIRST_SECRET, firstMove, {from: player1, gas: MAX_GAS })
-                    })
+                return instance.makeMoveHash.call(FIRST_SECRET, firstMove, {from: player1, gas: MAX_GAS })
                     .then(_firstHash => {
                         firstHash = _firstHash;
 
@@ -644,15 +703,16 @@ contract('RockPaperScissor', function(accounts) {
                     .then(()=> {
                         return instance.raise(gameHash, secondHash, {from: player2, value: SECOND_WAGER, gas: MAX_GAS })
                     })
-                    .then(txObject => {
+                    .then(() => {
                         return instance.reveal(gameHash, FIRST_SECRET, firstMove, {from: player1, gas: MAX_GAS })
                     })
-                    .then(txObject => {
+                    .then(() => {
                         return instance.reveal(gameHash, SECOND_SECRET, secondMove, {from: player2, gas: MAX_GAS })
                     })
                     .then(txObject => {
                         assert.equal(txObject.logs.length, 1, "should have received 1 event");
                         assert.equal(txObject.logs[0].event, eventName, "should be " + eventName + " event");
+
                         if (winner == -1) {
                             assert.equal(txObject.logs[0].args.firstPlayer, player1, "player 1 invalid");
                             assert.equal(txObject.logs[0].args.secondPlayer, player2, "player 2 invalid");

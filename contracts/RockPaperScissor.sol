@@ -24,10 +24,13 @@ contract RockPaperScissor {
     mapping(address => uint256) public balances;
 
     event LogCreation(uint256 minWager, uint256 maxWager);
-    event LogGameStarted(bytes32 indexed gameHash, address indexed player);
-    event LogGameEnded(bytes32 indexed gameHash, address indexed player);
+
+    event LogGameStarted(bytes32 indexed gameHash, address indexed player, bytes32 moveHash, uint256 expiringBlock);
+    event LogGameEnded(bytes32 indexed gameHash, address indexed player, bytes32 moveHash);
+
     event LogNoWinner(bytes32 indexed gameHash, address indexed firstPlayer, address indexed secondPlayer, MOVE move);
     event LogWinnerIs(bytes32 indexed gameHash, address indexed winner, MOVE winnerMove, address indexed looser, MOVE looserMove);
+
     event LogClaim(bytes32 indexed gameHash, address indexed player,  uint256 indexed wager);
     event LogWithdraw(address indexed player, uint256 indexed amount);
 
@@ -49,14 +52,15 @@ contract RockPaperScissor {
 
         Game storage game = games[gameHash];
 
-        require(game.first.player == 0, "play: player alreday played");
+        require(game.first.player == address(0), "play: player alreday played");
 
         game.first.player    = msg.sender;
         game.first.wager     = msg.value;
         game.first.moveHash  = moveHash;
         game.expiringBlock   = block.number + timeout;
 
-        emit LogGameStarted(gameHash, msg.sender);
+        // emit LogGameStarted(gameHash, msg.sender);
+        emit LogGameStarted(gameHash, msg.sender, moveHash, game.expiringBlock);
     }
 
     function raise(bytes32 gameHash, bytes32 moveHash) public payable {
@@ -65,14 +69,14 @@ contract RockPaperScissor {
         require(moveHash != 0, "raise: invalid moveHash");
 
         Game storage game = games[gameHash];
-        require(game.first.player != 0, "raise: game not started yet");
-        require(game.second.player == 0, "raise: game already ended");
+        require(game.first.player != address(0), "raise: game not started yet");
+        require(game.second.player == address(0), "raise: game already ended");
 
         game.second.player   = msg.sender;
         game.second.wager    = msg.value;
         game.second.moveHash = moveHash;
 
-        emit LogGameEnded(gameHash, msg.sender);
+        emit LogGameEnded(gameHash, msg.sender, moveHash);
     }
 
     function reveal(bytes32 gameHash, bytes32 secret, uint8 move) public {
@@ -81,34 +85,37 @@ contract RockPaperScissor {
         require(uint8(MOVE.NONE) < move && move <= uint8(MOVE.SCISSORS), "reveal: invalid move");
 
         Game storage game = games[gameHash];
-        require(game.first.player != 0 || game.second.player != 0, "reveal: some WINNER should have played");
+
+        Competitor storage firstCompetitor  = game.first;
+        Competitor storage secondCompetitor = game.second;
+
+        require(firstCompetitor.player != address(0) || secondCompetitor.player != address(0), "reveal: some WINNER should have played");
 
         bytes32 moveHash = makeMoveHash(secret, move);
 
-        require(game.first.player == msg.sender || game.second.player == msg.sender, "reveal: player not in the game");
-        require(game.first.moveHash == moveHash || game.second.moveHash == moveHash, "reveal: invalid moveHash");
-
-        if (game.first.player == msg.sender && game.first.moveHash == moveHash)
-            game.first.move = MOVE(move);
-        else if (game.second.player == msg.sender && game.second.moveHash == moveHash)
+        if (firstCompetitor.player == msg.sender && firstCompetitor.moveHash == moveHash) {
+            firstCompetitor.move = MOVE(move);
+        } else if (secondCompetitor.player == msg.sender && game.second.moveHash == moveHash) {
             game.second.move = MOVE(move);
-        else
+        } else {
             revert();
+        }
 
-        if (game.first.move == MOVE.NONE || game.second.move == MOVE.NONE)
+        if (firstCompetitor.move == MOVE.NONE || secondCompetitor.move == MOVE.NONE) {
             return;
+        }
 
         WINNER winner = evaluateWinner(game);
         if (winner == WINNER.NONE) {
-            balances[game.first.player] += game.first.wager;
-            balances[game.second.player] += game.second.wager;
-            emit LogNoWinner(gameHash, game.first.player, game.second.player, game.first.move);
+            balances[firstCompetitor.player] += firstCompetitor.wager;
+            balances[secondCompetitor.player] += game.second.wager;
+            emit LogNoWinner(gameHash, firstCompetitor.player, secondCompetitor.player, firstCompetitor.move);
         } else if (winner == WINNER.FIRST) {
-            balances[game.first.player] += game.first.wager + game.second.wager;
-            emit LogWinnerIs(gameHash, game.first.player, game.first.move, game.second.player, game.second.move);
+            balances[firstCompetitor.player] += firstCompetitor.wager + secondCompetitor.wager;
+            emit LogWinnerIs(gameHash, firstCompetitor.player, firstCompetitor.move, secondCompetitor.player, secondCompetitor.move);
         } else if (winner == WINNER.SECOND) {
-            balances[game.second.player] += game.first.wager + game.second.wager;
-            emit LogWinnerIs(gameHash, game.second.player, game.second.move, game.first.player, game.first.move);
+            balances[game.second.player] += firstCompetitor.wager + game.second.wager;
+            emit LogWinnerIs(gameHash, secondCompetitor.player, secondCompetitor.move, firstCompetitor.player, firstCompetitor.move);
         }
 
         resetGame(game);
@@ -130,12 +137,17 @@ contract RockPaperScissor {
         require(gameHash != 0, "claim: invalid gameHash");
 
         Game storage game = games[gameHash];
-        require(game.first.player == msg.sender, "claim: sender cannot claim this game");
-        require(block.number > game.expiringBlock, "claim: game is not expired");
 
-        balances[game.first.player] += game.first.wager;
+        Competitor storage firstCompetitor  = game.first;
+        Competitor storage secondCompetitor = game.second;
+
+        require(firstCompetitor.player == msg.sender, "claim: sender cannot claim this game");
+        require(block.number > game.expiringBlock, "claim: game is not expired");
+        require(secondCompetitor.player == address(0), "claim: player2 already played");
+
+        balances[firstCompetitor.player] += firstCompetitor.wager;
         
-        emit LogClaim(gameHash, msg.sender, game.first.wager);
+        emit LogClaim(gameHash, msg.sender, firstCompetitor.wager);
 
         resetGame(game);
     }
@@ -144,33 +156,22 @@ contract RockPaperScissor {
         return keccak256(abi.encodePacked(this, msg.sender, secret, move));
     }
 
-    function makeGameHash(bytes32 secret) public view returns(bytes32 hash) {
-        return keccak256(abi.encodePacked(address(this), msg.sender, secret));
-    }
-
     function evaluateWinner(Game storage game) private view returns(WINNER winner) {
-        if (game.first.move == game.second.move)
+        if (game.first.move == game.second.move) {
             winner = WINNER.NONE;
-        else if (game.first.move == MOVE.ROCK && game.second.move == MOVE.SCISSORS) 
+        } else if (game.first.move == MOVE.ROCK && game.second.move == MOVE.SCISSORS) {
             winner = WINNER.FIRST;
-        else if (game.first.move == MOVE.SCISSORS && game.second.move == MOVE.ROCK) 
+        } else if (game.first.move == MOVE.SCISSORS && game.second.move == MOVE.ROCK) {
             winner = WINNER.SECOND;
-        else 
+        } else { 
             winner = (game.first.move > game.second.move) ? WINNER.FIRST : WINNER.SECOND;
- 
+        }
+
         return winner;
     }
 
     function resetGame(Game storage game) private {
-        game.first.player    = address(0);
-        game.first.wager     = msg.value;
-        game.first.moveHash  = bytes32(0);
-        game.first.move      = MOVE.NONE;
-
-        game.second.player   = address(0);
-        game.second.wager    = 0;
-        game.second.moveHash = bytes32(0);
-        game.second.move      = MOVE.NONE;
+        delete game.first;
+        delete game.second;
     }
-
 }
