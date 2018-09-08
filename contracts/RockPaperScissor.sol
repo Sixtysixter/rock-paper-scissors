@@ -4,29 +4,22 @@ contract RockPaperScissor {
     enum WINNER {NONE, FIRST, SECOND}
     enum MOVE {NONE, ROCK, PAPER, SCISSORS}
 
-    struct Competitor {
-        bytes32 moveHash;
-        uint256 wager;
-        address player;
-        MOVE    move;
-    }
-
     struct Game {
-       Competitor first;
-       Competitor second;
-       uint256    expiringBlock;
+        bytes32    moveHash; // the player 1 move hash
+        address    player1;
+        MOVE       move;     // the player 2 move
+        address    player2;
+        uint256    wager;
+        uint256    expiringBlock;
     }
-
-    uint256 public minWager;
-    uint256 public maxWager;
 
     mapping(bytes32 => Game)    public games;
     mapping(address => uint256) public balances;
 
-    event LogCreation(uint256 minWager, uint256 maxWager);
+    event LogCreation(address indexed owner);
 
-    event LogGameStarted(bytes32 indexed gameHash, address indexed player, bytes32 moveHash, uint256 expiringBlock);
-    event LogGameEnded(bytes32 indexed gameHash, address indexed player, bytes32 moveHash);
+    event LogGameStarted(bytes32 indexed gameHash, address indexed player, uint256 indexed wager, bytes32 moveHash, uint256 expiringBlock);
+    event LogGameEnded(bytes32 indexed gameHash, address indexed player, MOVE move);
 
     event LogNoWinner(bytes32 indexed gameHash, address indexed firstPlayer, address indexed secondPlayer, MOVE move);
     event LogWinnerIs(bytes32 indexed gameHash, address indexed winner, MOVE winnerMove, address indexed looser, MOVE looserMove);
@@ -34,94 +27,79 @@ contract RockPaperScissor {
     event LogClaim(bytes32 indexed gameHash, address indexed player,  uint256 indexed wager);
     event LogWithdraw(address indexed player, uint256 indexed amount);
 
-    constructor(uint256 _minWager, uint256 _maxWager) public {
-        require(_minWager <= _maxWager, "constructor: min wager greater than max one");
-        if (_minWager == 0 && _maxWager > 0)
-            revert();
-
-        minWager = _minWager;
-        maxWager = _maxWager;
-
-        emit LogCreation(minWager, maxWager);
+    constructor() public {
+        emit LogCreation(msg.sender);
     }
 
-    function play(bytes32 gameHash, bytes32 moveHash, uint256 timeout) public payable {
-        require(minWager <= msg.value && msg.value <= maxWager, "play: wager out of range");
+    function play(bytes32 gameHash, bytes32 moveHash, uint256 timeout) public payable returns (bool success) {
         require(moveHash != 0, "play: invalid move");
         require(timeout > 0, "play: invalid timeout");
 
         Game storage game = games[gameHash];
 
-        require(game.first.player == address(0), "play: player alreday played");
+        require(game.player1 == address(0), "play: player alreday played as player 1");
 
-        game.first.player    = msg.sender;
-        game.first.wager     = msg.value;
-        game.first.moveHash  = moveHash;
-        game.expiringBlock   = block.number + timeout;
+        game.player1       = msg.sender;
+        game.wager         = msg.value;
+        game.moveHash      = moveHash;
+        game.expiringBlock = block.number + timeout;
 
         // emit LogGameStarted(gameHash, msg.sender);
-        emit LogGameStarted(gameHash, msg.sender, moveHash, game.expiringBlock);
+        emit LogGameStarted(gameHash, msg.sender, msg.value, moveHash, game.expiringBlock);
+        
+        return true;
     }
 
-    function raise(bytes32 gameHash, bytes32 moveHash) public payable {
+    function raise(bytes32 gameHash, MOVE move) public payable returns (bool success) {
         require(gameHash != 0, "raise: invalid gameHash");
-        require(minWager <= msg.value && msg.value <= maxWager, "raise: wager out of range");
-        require(moveHash != 0, "raise: invalid moveHash");
+        require(MOVE.NONE < move && move <= MOVE.SCISSORS, "raise: invalid move");
 
         Game storage game = games[gameHash];
-        require(game.first.player != address(0), "raise: game not started yet");
-        require(game.second.player == address(0), "raise: game already ended");
+        require(game.wager == msg.value, "raise: wager out of range");
+        require(game.player1 != address(0), "raise: game not started yet");
+        require(game.player2 == address(0), "raise: game already ended");
 
-        game.second.player   = msg.sender;
-        game.second.wager    = msg.value;
-        game.second.moveHash = moveHash;
+        game.player2 = msg.sender;
+        game.wager   = msg.value * 2;
+        game.move    = move;
 
-        emit LogGameEnded(gameHash, msg.sender, moveHash);
+        emit LogGameEnded(gameHash, msg.sender, move);
+        
+        return true;
     }
 
-    function reveal(bytes32 gameHash, bytes32 secret, uint8 move) public {
+    function reveal(bytes32 gameHash, bytes32 secret, MOVE move) public returns (bool success) {
         require(gameHash != 0, "reveal: invalid gameHash");
         require(secret != 0, "reveal: invalid secret");
-        require(uint8(MOVE.NONE) < move && move <= uint8(MOVE.SCISSORS), "reveal: invalid move");
+        require(MOVE.NONE < move && move <= MOVE.SCISSORS, "reveal: invalid move");
 
         Game storage game = games[gameHash];
 
-        Competitor storage firstCompetitor  = game.first;
-        Competitor storage secondCompetitor = game.second;
+        require(game.player1 == msg.sender, "reveal: only player 1 can reveal its move");
 
-        require(firstCompetitor.player != address(0) || secondCompetitor.player != address(0), "reveal: some WINNER should have played");
+        bytes32 moveHash = makeMoveHash(secret, MOVE(move));
 
-        bytes32 moveHash = makeMoveHash(secret, move);
+        require(game.moveHash == moveHash, "reveal: invalid move or secret");
 
-        if (firstCompetitor.player == msg.sender && firstCompetitor.moveHash == moveHash) {
-            firstCompetitor.move = MOVE(move);
-        } else if (secondCompetitor.player == msg.sender && game.second.moveHash == moveHash) {
-            game.second.move = MOVE(move);
-        } else {
-            revert();
-        }
-
-        if (firstCompetitor.move == MOVE.NONE || secondCompetitor.move == MOVE.NONE) {
-            return;
-        }
-
-        WINNER winner = evaluateWinner(game);
+        WINNER winner = evaluateWinner(game, move);
         if (winner == WINNER.NONE) {
-            balances[firstCompetitor.player] += firstCompetitor.wager;
-            balances[secondCompetitor.player] += game.second.wager;
-            emit LogNoWinner(gameHash, firstCompetitor.player, secondCompetitor.player, firstCompetitor.move);
+            balances[game.player1] += game.wager / 2;
+            balances[game.player2] += game.wager / 2;
+            emit LogNoWinner(gameHash, game.player1, game.player2, game.move);
         } else if (winner == WINNER.FIRST) {
-            balances[firstCompetitor.player] += firstCompetitor.wager + secondCompetitor.wager;
-            emit LogWinnerIs(gameHash, firstCompetitor.player, firstCompetitor.move, secondCompetitor.player, secondCompetitor.move);
+            balances[game.player1] += game.wager;
+            emit LogWinnerIs(gameHash, game.player1, move, game.player2, game.move);
         } else if (winner == WINNER.SECOND) {
-            balances[game.second.player] += firstCompetitor.wager + game.second.wager;
-            emit LogWinnerIs(gameHash, secondCompetitor.player, secondCompetitor.move, firstCompetitor.player, firstCompetitor.move);
+            balances[game.player2] += game.wager;
+            emit LogWinnerIs(gameHash, game.player2, game.move, game.player1, move);
         }
 
         resetGame(game);
+        
+        return true;
     }
 
-    function withdraw() public {
+    function withdraw() public returns (bool success) {
         uint256 amount = balances[msg.sender];
 
         require(amount != 0);
@@ -131,47 +109,49 @@ contract RockPaperScissor {
         emit LogWithdraw(msg.sender, amount);
 
         msg.sender.transfer(amount);
+        
+        return true;
     }
 
-    function claim(bytes32 gameHash) public {
+    function claim(bytes32 gameHash) public returns (bool success) {
         require(gameHash != 0, "claim: invalid gameHash");
 
         Game storage game = games[gameHash];
 
-        Competitor storage firstCompetitor  = game.first;
-        Competitor storage secondCompetitor = game.second;
-
-        require(firstCompetitor.player == msg.sender, "claim: sender cannot claim this game");
+        require(game.player1 == msg.sender, "claim: sender cannot claim this game");
         require(block.number > game.expiringBlock, "claim: game is not expired");
-        require(secondCompetitor.player == address(0), "claim: player2 already played");
+        require(game.player2 == address(0), "claim: player2 already played");
 
-        balances[firstCompetitor.player] += firstCompetitor.wager;
+        balances[game.player1] += game.wager;
         
-        emit LogClaim(gameHash, msg.sender, firstCompetitor.wager);
+        emit LogClaim(gameHash, msg.sender, game.wager);
 
         resetGame(game);
+        
+        return true;
     }
 
-    function makeMoveHash(bytes32 secret, uint8 move) public view returns(bytes32 moveHash) {
+    function makeMoveHash(bytes32 secret, MOVE move) public view returns(bytes32 moveHash) {
         return keccak256(abi.encodePacked(this, msg.sender, secret, move));
     }
 
-    function evaluateWinner(Game storage game) private view returns(WINNER winner) {
-        if (game.first.move == game.second.move) {
+    function evaluateWinner(Game storage game, MOVE move) private view returns(WINNER winner) {
+        if (move == game.move) {
             winner = WINNER.NONE;
-        } else if (game.first.move == MOVE.ROCK && game.second.move == MOVE.SCISSORS) {
+        } else if (move == MOVE.ROCK && game.move == MOVE.SCISSORS) {
             winner = WINNER.FIRST;
-        } else if (game.first.move == MOVE.SCISSORS && game.second.move == MOVE.ROCK) {
+        } else if (move == MOVE.SCISSORS && game.move == MOVE.ROCK) {
             winner = WINNER.SECOND;
         } else { 
-            winner = (game.first.move > game.second.move) ? WINNER.FIRST : WINNER.SECOND;
+            winner = (move > game.move) ? WINNER.FIRST : WINNER.SECOND;
         }
 
         return winner;
     }
 
     function resetGame(Game storage game) private {
-        delete game.first;
-        delete game.second;
+        game.moveHash = bytes32(0);
+        game.player1  = 0;
+        game.player2  = 0;
     }
 }
